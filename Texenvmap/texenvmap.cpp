@@ -777,20 +777,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     if (~dwOptions & (1 << OPT_NOLOGO))
         PrintLogo();
 
-    switch (dwCommand)
+    if (conversion.size() != 1 && conversion.size() != 6)
     {
-    case CMD_CUBIC:
-    case CMD_SPHERE:
-    case CMD_DUAL_PARABOLA:
-        if (conversion.size() != 6)
-        {
-            wprintf(L"ERROR: cubic/sphere/dualparabola requires 6 input images\n");
-            return 1;
-        }
-        break;
-
-    default:
-        break;
+        wprintf(L"ERROR: cubic/sphere/dualparabola requires 1 or 6 input images\n");
+        return 1;
     }
 
     // Convert images
@@ -800,8 +790,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
     for (auto pConv = conversion.begin(); pConv != conversion.end(); ++pConv)
     {
-        wchar_t ext[_MAX_EXT];
-        wchar_t fname[_MAX_FNAME];
+        wchar_t ext[_MAX_EXT] = {};
+        wchar_t fname[_MAX_FNAME] = {};
         _wsplitpath_s(pConv->szSrc, nullptr, 0, nullptr, 0, fname, _MAX_FNAME, ext, _MAX_EXT);
 
         // Load source image
@@ -838,11 +828,15 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 return 1;
             }
 
-            if (info.mipLevels > 1
-                || info.IsVolumemap()
-                || info.IsCubemap())
+            if (info.IsVolumemap())
             {
-                wprintf(L"\nERROR: Can't use complex surfaces as inputs\n");
+                wprintf(L"\nERROR: Can't use volume textures as input\n");
+                return 1;
+            }
+
+            if (info.arraySize > 1 && info.arraySize != 6)
+            {
+                wprintf(L"\nERROR: Can only use single cubemap or 6-entry array textures\n");
                 return 1;
             }
         }
@@ -874,7 +868,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             static_assert(static_cast<int>(WIC_FLAGS_FILTER_CUBIC) == static_cast<int>(TEX_FILTER_CUBIC), "WIC_FLAGS_* & TEX_FILTER_* should match");
             static_assert(static_cast<int>(WIC_FLAGS_FILTER_FANT) == static_cast<int>(TEX_FILTER_FANT), "WIC_FLAGS_* & TEX_FILTER_* should match");
 
-            hr = LoadFromWICFile(pConv->szSrc, dwFilter | WIC_FLAGS_ALL_FRAMES, &info, *image);
+            hr = LoadFromWICFile(pConv->szSrc, WIC_FLAGS_NONE | dwFilter, &info, *image);
             if (FAILED(hr))
             {
                 wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
@@ -1087,7 +1081,39 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
 
         images += info.arraySize;
-        loadedImages.emplace_back(std::move(image));
+
+        if (info.arraySize > 1)
+        {
+            for(size_t j = 0; j < info.arraySize; ++j)
+            {
+                auto img = image->GetImage(0, j, 0);
+                if (!img)
+                {
+                    wprintf(L"\nERROR: Splitting array failed\n");
+                    return 1;
+                }
+
+                std::unique_ptr<ScratchImage> timage(new (std::nothrow) ScratchImage);
+                if (!timage)
+                {
+                    wprintf(L"\nERROR: Memory allocation failed\n");
+                    return 1;
+                }
+
+                hr = timage->InitializeFromImage(*img);
+                if (FAILED(hr))
+                {
+                    wprintf(L" FAILED [splitting array] (%x)\n", static_cast<unsigned int>(hr));
+                    return 1;
+                }
+
+                loadedImages.emplace_back(std::move(timage));
+            }
+        }
+        else
+        {
+            loadedImages.emplace_back(std::move(image));
+        }
     }
 
     // --- Create result ---------------------------------------------------------------  
