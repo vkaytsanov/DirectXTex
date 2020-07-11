@@ -31,6 +31,8 @@
 
 #include <wrl/client.h>
 
+#include <d3d11_1.h>
+#include <dxgi.h>
 #include <dxgiformat.h>
 
 #include <wincodec.h>
@@ -73,6 +75,7 @@ namespace
         OPT_DEMUL_ALPHA,
         OPT_TA_WRAP,
         OPT_TA_MIRROR,
+        OPT_GPU,
         OPT_MAX
     };
 
@@ -122,6 +125,7 @@ namespace
         { L"alpha",     OPT_DEMUL_ALPHA },
         { L"wrap",      OPT_TA_WRAP },
         { L"mirror",    OPT_TA_MIRROR },
+        { L"gpu",       OPT_GPU },
         { nullptr,      0 }
     };
 
@@ -129,75 +133,27 @@ namespace
 
     const SValue g_pFormats[] =
     {
-        // List does not include _TYPELESS or depth/stencil formats
+        // List only includes render target supported formats
         DEFFMT(R32G32B32A32_FLOAT),
-        DEFFMT(R32G32B32A32_UINT),
-        DEFFMT(R32G32B32A32_SINT),
-        DEFFMT(R32G32B32_FLOAT),
-        DEFFMT(R32G32B32_UINT),
-        DEFFMT(R32G32B32_SINT),
         DEFFMT(R16G16B16A16_FLOAT),
         DEFFMT(R16G16B16A16_UNORM),
-        DEFFMT(R16G16B16A16_UINT),
-        DEFFMT(R16G16B16A16_SNORM),
-        DEFFMT(R16G16B16A16_SINT),
         DEFFMT(R32G32_FLOAT),
-        DEFFMT(R32G32_UINT),
-        DEFFMT(R32G32_SINT),
         DEFFMT(R10G10B10A2_UNORM),
-        DEFFMT(R10G10B10A2_UINT),
         DEFFMT(R11G11B10_FLOAT),
         DEFFMT(R8G8B8A8_UNORM),
         DEFFMT(R8G8B8A8_UNORM_SRGB),
-        DEFFMT(R8G8B8A8_UINT),
-        DEFFMT(R8G8B8A8_SNORM),
-        DEFFMT(R8G8B8A8_SINT),
         DEFFMT(R16G16_FLOAT),
         DEFFMT(R16G16_UNORM),
-        DEFFMT(R16G16_UINT),
-        DEFFMT(R16G16_SNORM),
-        DEFFMT(R16G16_SINT),
         DEFFMT(R32_FLOAT),
-        DEFFMT(R32_UINT),
-        DEFFMT(R32_SINT),
         DEFFMT(R8G8_UNORM),
-        DEFFMT(R8G8_UINT),
-        DEFFMT(R8G8_SNORM),
-        DEFFMT(R8G8_SINT),
         DEFFMT(R16_FLOAT),
         DEFFMT(R16_UNORM),
-        DEFFMT(R16_UINT),
-        DEFFMT(R16_SNORM),
-        DEFFMT(R16_SINT),
         DEFFMT(R8_UNORM),
         DEFFMT(R8_UINT),
-        DEFFMT(R8_SNORM),
-        DEFFMT(R8_SINT),
         DEFFMT(A8_UNORM),
-        //DEFFMT(R1_UNORM)
-        DEFFMT(R9G9B9E5_SHAREDEXP),
-        DEFFMT(R8G8_B8G8_UNORM),
-        DEFFMT(G8R8_G8B8_UNORM),
         DEFFMT(B5G6R5_UNORM),
-        DEFFMT(B5G5R5A1_UNORM),
-
-        // DXGI 1.1 formats
         DEFFMT(B8G8R8A8_UNORM),
-        DEFFMT(B8G8R8X8_UNORM),
-        DEFFMT(R10G10B10_XR_BIAS_A2_UNORM),
         DEFFMT(B8G8R8A8_UNORM_SRGB),
-        DEFFMT(B8G8R8X8_UNORM_SRGB),
-
-        // DXGI 1.2 formats
-        DEFFMT(AYUV),
-        DEFFMT(Y410),
-        DEFFMT(Y416),
-        DEFFMT(YUY2),
-        DEFFMT(Y210),
-        DEFFMT(Y216),
-        // No support for legacy paletted video formats (AI44, IA44, P8, A8P8)
-        DEFFMT(B4G4R4A4_UNORM),
-
         { nullptr, DXGI_FORMAT_UNKNOWN }
     };
 
@@ -255,6 +211,26 @@ namespace
         { L".JXR",  WIC_CODEC_WMP },
         { nullptr,  CODEC_DDS }
     };
+
+    inline bool __cdecl IsFloat(DXGI_FORMAT fmt) noexcept
+    {
+        switch (fmt)
+        {
+        case DXGI_FORMAT_R32G32B32A32_FLOAT:
+        case DXGI_FORMAT_R32G32B32_FLOAT:
+        case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        case DXGI_FORMAT_R32G32_FLOAT:
+        case DXGI_FORMAT_R11G11B10_FLOAT:
+        case DXGI_FORMAT_R16G16_FLOAT:
+        case DXGI_FORMAT_R32_FLOAT:
+        case DXGI_FORMAT_R16_FLOAT:
+        case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+            return true;
+
+        default:
+            return false;
+        }
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -280,7 +256,7 @@ namespace
 #pragma prefast(disable : 26018, "Only used with static internal arrays")
 #endif
 
-    DWORD LookupByName(const wchar_t *pName, const SValue *pArray)
+    DWORD LookupByName(const wchar_t* pName, const SValue* pArray)
     {
         while (pArray->pName)
         {
@@ -371,7 +347,7 @@ namespace
 
     void PrintFormat(DXGI_FORMAT Format)
     {
-        for (const SValue *pFormat = g_pFormats; pFormat->pName; pFormat++)
+        for (const SValue* pFormat = g_pFormats; pFormat->pName; pFormat++)
         {
             if (static_cast<DXGI_FORMAT>(pFormat->dwValue) == Format)
             {
@@ -442,7 +418,7 @@ namespace
     }
 
 
-    void PrintList(size_t cch, const SValue *pValue)
+    void PrintList(size_t cch, const SValue* pValue)
     {
         while (pValue->pName)
         {
@@ -474,6 +450,33 @@ namespace
     }
 
 
+    _Success_(return != false)
+        bool GetDXGIFactory(_Outptr_ IDXGIFactory1 * *pFactory)
+    {
+        if (!pFactory)
+            return false;
+
+        *pFactory = nullptr;
+
+        typedef HRESULT(WINAPI* pfn_CreateDXGIFactory1)(REFIID riid, _Out_ void** ppFactory);
+
+        static pfn_CreateDXGIFactory1 s_CreateDXGIFactory1 = nullptr;
+
+        if (!s_CreateDXGIFactory1)
+        {
+            HMODULE hModDXGI = LoadLibraryW(L"dxgi.dll");
+            if (!hModDXGI)
+                return false;
+
+            s_CreateDXGIFactory1 = reinterpret_cast<pfn_CreateDXGIFactory1>(reinterpret_cast<void*>(GetProcAddress(hModDXGI, "CreateDXGIFactory1")));
+            if (!s_CreateDXGIFactory1)
+                return false;
+        }
+
+        return SUCCEEDED(s_CreateDXGIFactory1(IID_PPV_ARGS(pFactory)));
+    }
+
+
     void PrintUsage()
     {
         PrintLogo();
@@ -499,6 +502,7 @@ namespace
         wprintf(L"   -alpha              convert premultiplied alpha to straight alpha\n");
         wprintf(L"   -dx10               Force use of 'DX10' extended header\n");
         wprintf(L"   -nologo             suppress copyright message\n");
+        wprintf(L"   -gpu <adapter>      Select GPU for DirectCompute-based codecs (0 is default)\n");
 
         wprintf(L"\n   <format>: ");
         PrintList(13, g_pFormats);
@@ -507,6 +511,108 @@ namespace
 
         wprintf(L"\n   <filter>: ");
         PrintList(13, g_pFilters);
+
+        ComPtr<IDXGIFactory1> dxgiFactory;
+        if (GetDXGIFactory(dxgiFactory.GetAddressOf()))
+        {
+            wprintf(L"\n   <adapter>:\n");
+
+            ComPtr<IDXGIAdapter> adapter;
+            for (UINT adapterIndex = 0;
+                SUCCEEDED(dxgiFactory->EnumAdapters(adapterIndex, adapter.ReleaseAndGetAddressOf()));
+                ++adapterIndex)
+            {
+                DXGI_ADAPTER_DESC desc;
+                if (SUCCEEDED(adapter->GetDesc(&desc)))
+                {
+                    wprintf(L"      %u: VID:%04X, PID:%04X - %ls\n", adapterIndex, desc.VendorId, desc.DeviceId, desc.Description);
+                }
+            }
+        }
+    }
+
+    _Success_(return != false)
+        bool CreateDevice(int adapter, _Outptr_ ID3D11Device** pDevice)
+    {
+        if (!pDevice)
+            return false;
+
+        *pDevice = nullptr;
+
+        static PFN_D3D11_CREATE_DEVICE s_DynamicD3D11CreateDevice = nullptr;
+
+        if (!s_DynamicD3D11CreateDevice)
+        {
+            HMODULE hModD3D11 = LoadLibraryW(L"d3d11.dll");
+            if (!hModD3D11)
+                return false;
+
+            s_DynamicD3D11CreateDevice = reinterpret_cast<PFN_D3D11_CREATE_DEVICE>(reinterpret_cast<void*>(GetProcAddress(hModD3D11, "D3D11CreateDevice")));
+            if (!s_DynamicD3D11CreateDevice)
+                return false;
+        }
+
+        D3D_FEATURE_LEVEL featureLevels[] =
+        {
+            D3D_FEATURE_LEVEL_11_0,
+            D3D_FEATURE_LEVEL_10_1,
+            D3D_FEATURE_LEVEL_10_0,
+        };
+
+        UINT createDeviceFlags = 0;
+#ifdef _DEBUG
+        createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
+
+        ComPtr<IDXGIAdapter> pAdapter;
+        if (adapter >= 0)
+        {
+            ComPtr<IDXGIFactory1> dxgiFactory;
+            if (GetDXGIFactory(dxgiFactory.GetAddressOf()))
+            {
+                if (FAILED(dxgiFactory->EnumAdapters(static_cast<UINT>(adapter), pAdapter.GetAddressOf())))
+                {
+                    wprintf(L"\nERROR: Invalid GPU adapter index (%d)!\n", adapter);
+                    return false;
+                }
+            }
+        }
+
+        D3D_FEATURE_LEVEL fl;
+        HRESULT hr = s_DynamicD3D11CreateDevice(pAdapter.Get(),
+            (pAdapter) ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+            nullptr, createDeviceFlags, featureLevels, _countof(featureLevels),
+            D3D11_SDK_VERSION, pDevice, &fl, nullptr);
+        if (FAILED(hr))
+        {
+            hr = s_DynamicD3D11CreateDevice(nullptr,
+                D3D_DRIVER_TYPE_WARP,
+                nullptr, createDeviceFlags, featureLevels, _countof(featureLevels),
+                D3D11_SDK_VERSION, pDevice, &fl, nullptr);
+        }
+
+        if (SUCCEEDED(hr))
+        {
+            ComPtr<IDXGIDevice> dxgiDevice;
+            hr = (*pDevice)->QueryInterface(IID_PPV_ARGS(dxgiDevice.GetAddressOf()));
+            if (SUCCEEDED(hr))
+            {
+                hr = dxgiDevice->GetAdapter(pAdapter.ReleaseAndGetAddressOf());
+                if (SUCCEEDED(hr))
+                {
+                    DXGI_ADAPTER_DESC desc;
+                    hr = pAdapter->GetDesc(&desc);
+                    if (SUCCEEDED(hr))
+                    {
+                        wprintf(L"[Using Direct3D on \"%ls\"]\n\n", desc.Description);
+                    }
+                }
+            }
+
+            return true;
+        }
+        else
+            return false;
     }
 }
 
@@ -528,6 +634,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     TEX_FILTER_FLAGS dwSRGB = TEX_FILTER_DEFAULT;
     TEX_FILTER_FLAGS dwFilterOpts = TEX_FILTER_DEFAULT;
     DWORD fileType = WIC_CODEC_BMP;
+    int adapter = -1;
 
     wchar_t szOutputFile[MAX_PATH] = {};
 
@@ -595,6 +702,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             case OPT_FORMAT:
             case OPT_FILTER:
             case OPT_OUTPUTFILE:
+            case OPT_GPU:
                 if (!*pValue)
                 {
                     if ((iArg + 1 >= argc))
@@ -703,6 +811,21 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 dwFilterOpts |= TEX_FILTER_MIRROR;
                 break;
 
+            case OPT_GPU:
+                if (swscanf_s(pValue, L"%d", &adapter) != 1)
+                {
+                    wprintf(L"Invalid value specified with -gpu (%ls)\n\n", pValue);
+                    PrintUsage();
+                    return 1;
+                }
+                else if (adapter < 0)
+                {
+                    wprintf(L"Adapter index (%ls)\n\n", pValue);
+                    PrintUsage();
+                    return 1;
+                }
+                break;
+
             case OPT_FILELIST:
             {
                 std::wifstream inFile(pValue);
@@ -777,13 +900,20 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     if (~dwOptions & (1 << OPT_NOLOGO))
         PrintLogo();
 
+    ComPtr<ID3D11Device> pDevice;
+    if (!CreateDevice(adapter, pDevice.GetAddressOf()))
+    {
+        wprintf(L"\nERROR: Direct3D device not available\n");
+        return 1;
+    }
+
     if (conversion.size() != 1 && conversion.size() != 6)
     {
         wprintf(L"ERROR: cubic/sphere/dualparabola requires 1 or 6 input images\n");
         return 1;
     }
 
-    // Convert images
+    // Load images
     size_t images = 0;
 
     std::vector<std::unique_ptr<ScratchImage>> loadedImages;
@@ -878,7 +1008,6 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
         PrintInfo(info);
 
-        // Convert texture
         fflush(stdout);
 
         // --- Planar ------------------------------------------------------------------
@@ -1001,83 +1130,9 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             }
         }
 
-        // --- Resize ------------------------------------------------------------------
-        if (!width)
-        {
-            width = info.width;
-        }
-        if (!height)
-        {
-            height = info.height;
-        }
-        if (info.width != width || info.height != height)
-        {
-            std::unique_ptr<ScratchImage> timage(new (std::nothrow) ScratchImage);
-            if (!timage)
-            {
-                wprintf(L"\nERROR: Memory allocation failed\n");
-                return 1;
-            }
-
-            hr = Resize(image->GetImages(), image->GetImageCount(), image->GetMetadata(), width, height, dwFilter | dwFilterOpts, *timage.get());
-            if (FAILED(hr))
-            {
-                wprintf(L" FAILED [resize] (%x)\n", static_cast<unsigned int>(hr));
-                return 1;
-            }
-
-            auto& tinfo = timage->GetMetadata();
-
-            assert(tinfo.width == width && tinfo.height == height && tinfo.mipLevels == 1);
-            info.width = tinfo.width;
-            info.height = tinfo.height;
-            info.mipLevels = 1;
-
-            assert(info.depth == tinfo.depth);
-            assert(info.arraySize == tinfo.arraySize);
-            assert(info.miscFlags == tinfo.miscFlags);
-            assert(info.format == tinfo.format);
-            assert(info.dimension == tinfo.dimension);
-
-            image.swap(timage);
-        }
-
-        // --- Convert -----------------------------------------------------------------
         if (format == DXGI_FORMAT_UNKNOWN)
         {
-            format = info.format;
-        }
-        else if (info.format != format && !IsCompressed(format))
-        {
-            std::unique_ptr<ScratchImage> timage(new (std::nothrow) ScratchImage);
-            if (!timage)
-            {
-                wprintf(L"\nERROR: Memory allocation failed\n");
-                return 1;
-            }
-
-            hr = Convert(image->GetImages(), image->GetImageCount(), image->GetMetadata(), format,
-                dwFilter | dwFilterOpts | dwSRGB, TEX_THRESHOLD_DEFAULT, *timage.get());
-            if (FAILED(hr))
-            {
-                wprintf(L" FAILED [convert] (%x)\n", static_cast<unsigned int>(hr));
-                return 1;
-            }
-
-            auto& tinfo = timage->GetMetadata();
-
-            assert(tinfo.format == format);
-            info.format = tinfo.format;
-
-            assert(info.width == tinfo.width);
-            assert(info.height == tinfo.height);
-            assert(info.depth == tinfo.depth);
-            assert(info.arraySize == tinfo.arraySize);
-            assert(info.mipLevels == tinfo.mipLevels);
-            assert(info.miscFlags == tinfo.miscFlags);
-            assert(info.dimension == tinfo.dimension);
-
-            image.swap(timage);
+            format = IsFloat(info.format) ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
         }
 
         images += info.arraySize;
@@ -1116,9 +1171,26 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
     }
 
-    // --- Create result ---------------------------------------------------------------  
-    // TODO -
+    if (images > 6)
+    {
+        wprintf(L"WARNING: Ignoring additional images, only using first 6 of %zu to form input cubemap\n", images);
+    }
 
+    // --- Convert input to cubemap ----------------------------------------------------
+    if (images == 1)
+    {
+        // TODO - perform equirectangular projection to cubemap
+    }
+    else
+    {
+        // TODO - assemble cubemap
+    }
+
+    // --- Create result ---------------------------------------------------------------
+
+    // TODO - sphere / dual parabolic projection
+
+    // --- Write result ----------------------------------------------------------------
 #if 0
     // Write texture
     wprintf(L"\nWriting %ls ", szOutputFile);
