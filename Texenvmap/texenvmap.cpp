@@ -51,6 +51,7 @@ namespace
         CMD_CUBIC = 1,
         CMD_SPHERE,
         CMD_DUAL_PARABOLA,
+        CMD_DUAL_HEMISPHERE,
         CMD_MAX
     };
 
@@ -100,7 +101,8 @@ namespace
     {
         { L"cubic",         CMD_CUBIC },
         { L"sphere",        CMD_SPHERE },
-        { L"dualparabola",  CMD_DUAL_PARABOLA },
+        { L"parabola",      CMD_DUAL_PARABOLA },
+        { L"hemisphere",    CMD_DUAL_HEMISPHERE },
         { nullptr,          0 }
     };
 
@@ -211,26 +213,6 @@ namespace
         { L".JXR",  WIC_CODEC_WMP },
         { nullptr,  CODEC_DDS }
     };
-
-    inline bool __cdecl IsFloat(DXGI_FORMAT fmt) noexcept
-    {
-        switch (fmt)
-        {
-        case DXGI_FORMAT_R32G32B32A32_FLOAT:
-        case DXGI_FORMAT_R32G32B32_FLOAT:
-        case DXGI_FORMAT_R16G16B16A16_FLOAT:
-        case DXGI_FORMAT_R32G32_FLOAT:
-        case DXGI_FORMAT_R11G11B10_FLOAT:
-        case DXGI_FORMAT_R16G16_FLOAT:
-        case DXGI_FORMAT_R32_FLOAT:
-        case DXGI_FORMAT_R16_FLOAT:
-        case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
-            return true;
-
-        default:
-            return false;
-        }
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -484,7 +466,8 @@ namespace
         wprintf(L"Usage: texenvmap <command> <options> <files>\n\n");
         wprintf(L"   cubic               create cubic environment map\n");
         wprintf(L"   sphere              create sphere environment map\n");
-        wprintf(L"   dualparabola        create dual-parabolic environment map\n\n");
+        wprintf(L"   parabola            create dual parabolic environment map\n");
+        wprintf(L"   hemisphere          create dual hemisphere environment map\n\n");
 
         wprintf(L"   -r                  wildcard filename search is recursive\n");
         wprintf(L"   -flist <filename>   use text file with a list of input files (one per line)\n");
@@ -659,10 +642,11 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     case CMD_CUBIC:
     case CMD_SPHERE:
     case CMD_DUAL_PARABOLA:
+    case CMD_DUAL_HEMISPHERE:
         break;
 
     default:
-        wprintf(L"Must use one of: cubic, sphere, dualparabola\n\n");
+        wprintf(L"Must use one of: cubic, sphere, parabola, hemisphere\n\n");
         return 1;
     }
 
@@ -907,9 +891,22 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         return 1;
     }
 
+    if (format != DXGI_FORMAT_UNKNOWN)
+    {
+        UINT support = 0;
+        hr = pDevice->CheckFormatSupport(format, &support);
+        if (FAILED(hr) || !(support & D3D11_FORMAT_SUPPORT_RENDER_TARGET))
+        {
+            wprintf(L"\nERROR: Direct3D device does not support format as a render target (DXGI_FORMAT_");
+            PrintFormat(format);
+            wprintf(L")\n");
+            return 1;
+        }
+    }
+
     if (conversion.size() != 1 && conversion.size() != 6)
     {
-        wprintf(L"ERROR: cubic/sphere/dualparabola requires 1 or 6 input images\n");
+        wprintf(L"ERROR: cubic/sphere/parabola/hemisphere requires 1 or 6 input images\n");
         return 1;
     }
 
@@ -1132,7 +1129,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
         if (format == DXGI_FORMAT_UNKNOWN)
         {
-            format = IsFloat(info.format) ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
+            format = (GetFormatDataType(info.format) == FORMAT_TYPE_FLOAT)
+                ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
         }
 
         images += info.arraySize;
