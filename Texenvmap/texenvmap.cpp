@@ -597,6 +597,134 @@ namespace
         else
             return false;
     }
+
+
+    // Vertex types
+    struct VertexPositionTexture
+    {
+        XMFLOAT3 position;
+        XMFLOAT2 texcoord;
+
+        static constexpr unsigned int InputElementCount = 2;
+        static const D3D11_INPUT_ELEMENT_DESC InputElements[InputElementCount];
+    };
+
+    const D3D11_INPUT_ELEMENT_DESC VertexPositionTexture::InputElements[] =
+    {
+        { "SV_Position", 0, DXGI_FORMAT_R32G32B32_FLOAT,    0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD",    0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+
+    // Unit cube
+    class UnitCube
+    {
+    public:
+        UnitCube() = default;
+
+        HRESULT Create(_In_ ID3D11Device* device)
+        {
+            if (!device)
+                return E_INVALIDARG;
+
+            D3D11_BUFFER_DESC desc = {};
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.ByteWidth = static_cast<UINT>(sizeof(VertexPositionTexture) * nVerts);
+            desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+            D3D11_SUBRESOURCE_DATA initData = {};
+            initData.pSysMem = c_cubeVertices;
+
+            HRESULT hr = device->CreateBuffer(&desc, &initData, vertexBuffer.ReleaseAndGetAddressOf());
+            if (FAILED(hr))
+                return hr;
+
+            desc.ByteWidth = static_cast<UINT>(sizeof(uint16_t) * nFaces * 3);
+            desc.BindFlags = D3D11_BIND_INDEX_BUFFER;
+            initData.pSysMem = c_cubeIndices;
+
+            return device->CreateBuffer(&desc, &initData, indexBuffer.ReleaseAndGetAddressOf());
+        }
+
+        void Draw(_In_ ID3D11DeviceContext* context)
+        {
+            if (!context)
+                return;
+
+            auto vb = vertexBuffer.Get();
+            UINT stride = sizeof(VertexPositionTexture);
+            UINT offset = 0;
+            context->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+
+            context->IASetIndexBuffer(indexBuffer.Get(), DXGI_FORMAT_R16_UINT, 0);
+            context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+            context->DrawIndexed(nFaces * 3, 0, 0);
+        }
+
+    private:
+        static constexpr UINT nVerts = 24;
+        static const VertexPositionTexture c_cubeVertices[nVerts];
+
+        static constexpr UINT nFaces = 12;
+        static const uint16_t c_cubeIndices[nFaces * 3];
+
+        Microsoft::WRL::ComPtr<ID3D11Buffer> vertexBuffer;
+        Microsoft::WRL::ComPtr<ID3D11Buffer> indexBuffer;
+    };
+
+    const VertexPositionTexture UnitCube::c_cubeVertices[] =
+    {
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
+
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+
+        { XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+        { XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+        { XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
+        { XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
+    };
+
+    const uint16_t UnitCube::c_cubeIndices[] =
+    {
+        3,1,0,
+        2,1,3,
+
+        6,4,5,
+        7,4,6,
+
+        11,9,8,
+        10,9,11,
+
+        14,12,13,
+        15,12,14,
+
+        19,17,16,
+        18,17,19,
+
+        22,20,21,
+        23,20,22
+    };
 }
 
 //--------------------------------------------------------------------------------------
@@ -891,6 +1019,14 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         return 1;
     }
 
+    UnitCube unitCube;
+    hr = unitCube.Create(pDevice.Get());
+    if (FAILED(hr))
+    {
+        wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+        return 1;
+    }
+
     if (format != DXGI_FORMAT_UNKNOWN)
     {
         UINT support = 0;
@@ -1129,7 +1265,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
         if (format == DXGI_FORMAT_UNKNOWN)
         {
-            format = (GetFormatDataType(info.format) == FORMAT_TYPE_FLOAT)
+            format = (FormatDataType(info.format) == FORMAT_TYPE_FLOAT)
                 ? DXGI_FORMAT_R32G32B32A32_FLOAT : DXGI_FORMAT_R8G8B8A8_UNORM;
         }
 
