@@ -433,7 +433,7 @@ namespace
 
 
     _Success_(return != false)
-        bool GetDXGIFactory(_Outptr_ IDXGIFactory1 * *pFactory)
+        bool GetDXGIFactory(_Outptr_ IDXGIFactory1 * *pFactory) noexcept
     {
         if (!pFactory)
             return false;
@@ -514,8 +514,9 @@ namespace
         }
     }
 
+
     _Success_(return != false)
-        bool CreateDevice(int adapter, _Outptr_ ID3D11Device** pDevice)
+        bool CreateDevice(int adapter, _Outptr_ ID3D11Device** pDevice) noexcept
     {
         if (!pDevice)
             return false;
@@ -599,6 +600,88 @@ namespace
     }
 
 
+    // Render Target
+    class RenderTarget
+    {
+    public:
+        RenderTarget() = default;
+
+        HRESULT Create(
+            ID3D11Device* device,
+            size_t width,
+            size_t height,
+            DXGI_FORMAT format) noexcept
+        {
+            texture.Reset();
+            srv.Reset();
+            rtv.Reset();
+
+            if (!device || !width || !height)
+                return E_INVALIDARG;
+
+            if ((width > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION)
+                || (height > D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION))
+            {
+                return HRESULT_FROM_WIN32(ERROR_NOT_SUPPORTED);
+            }
+
+            D3D11_TEXTURE2D_DESC desc = {};
+            desc.Width = static_cast<UINT>(width);
+            desc.Height = static_cast<UINT>(height);
+            desc.MipLevels = desc.ArraySize = 1;
+            desc.Format = format;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+
+            HRESULT hr = device->CreateTexture2D(&desc, nullptr, texture.GetAddressOf());
+            if (SUCCEEDED(hr))
+            {
+                hr = device->CreateShaderResourceView(texture.Get(), nullptr, srv.GetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+
+                hr = device->CreateRenderTargetView(texture.Get(), nullptr, rtv.GetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+            }
+
+            return hr;
+        }
+
+        void Begin(ID3D11DeviceContext* context, bool clear = false)
+        {
+            if (!context)
+                return;
+
+            if (clear)
+            {
+                float black[4] = {};
+                context->ClearRenderTargetView(rtv.Get(), black);
+            }
+
+            context->OMSetRenderTargets(1, rtv.GetAddressOf(), nullptr);
+        }
+
+        void End(ID3D11DeviceContext* context)
+        {
+            if (!context)
+                return;
+
+            ID3D11RenderTargetView* nullrtv = nullptr;
+            context->OMSetRenderTargets(1, &nullrtv, nullptr);
+        }
+
+        ID3D11ShaderResourceView* GetSRV() const { return srv.Get(); }
+        ID3D11Texture2D* GetTexture() const { return texture.Get(); }
+
+    private:
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+        Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
+    };
+
+
     // Vertex types
     struct VertexPositionTexture
     {
@@ -621,7 +704,7 @@ namespace
     public:
         UnitCube() = default;
 
-        HRESULT Create(_In_ ID3D11Device* device)
+        HRESULT Create(_In_ ID3D11Device* device) noexcept
         {
             if (!device)
                 return E_INVALIDARG;
@@ -1019,11 +1102,14 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         return 1;
     }
 
+    ComPtr<ID3D11DeviceContext> pContext;
+    pDevice->GetImmediateContext(pContext.GetAddressOf());
+
     UnitCube unitCube;
     hr = unitCube.Create(pDevice.Get());
     if (FAILED(hr))
     {
-        wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+        wprintf(L" FAILED creating Direct3D unit cube (%x)\n", static_cast<unsigned int>(hr));
         return 1;
     }
 
@@ -1031,7 +1117,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     {
         UINT support = 0;
         hr = pDevice->CheckFormatSupport(format, &support);
-        if (FAILED(hr) || !(support & D3D11_FORMAT_SUPPORT_RENDER_TARGET))
+        UINT required = D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_RENDER_TARGET;
+        if (FAILED(hr) || ((support & required) != required))
         {
             wprintf(L"\nERROR: Direct3D device does not support format as a render target (DXGI_FORMAT_");
             PrintFormat(format);
@@ -1050,6 +1137,9 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     size_t images = 0;
 
     std::vector<std::unique_ptr<ScratchImage>> loadedImages;
+
+    size_t maxWidth = 0;
+    size_t maxHeight = 0;
 
     for (auto pConv = conversion.begin(); pConv != conversion.end(); ++pConv)
     {
@@ -1303,6 +1393,11 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         {
             loadedImages.emplace_back(std::move(image));
         }
+
+        if (info.width > maxWidth)
+            maxWidth = info.width;
+        if (info.height > maxHeight)
+            maxHeight = info.height;
     }
 
     if (images > 6)
@@ -1311,13 +1406,66 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     }
 
     // --- Convert input to cubemap ----------------------------------------------------
+    if (!width)
+        width = height;
+
+    if (!height)
+        height = width;
+
+    if (!width || !height)
+    {
+        // TODO - Make pow2?
+        if (images == 1)
+        {
+            width = height = maxHeight;
+        }
+        else
+        {
+            width = maxWidth;
+            height = maxHeight;
+        }
+    }
+
+    size_t cubeWidth = (dwCommand == CMD_CUBIC) ? width : (images == 1) ? maxHeight : maxWidth;
+    size_t cubeHeight = (dwCommand == CMD_CUBIC) ? height : maxHeight;
+
+    RenderTarget cubemap[6];
+    for (auto it : cubemap)
+    {
+        hr = it.Create(pDevice.Get(), cubeWidth, cubeHeight, format);
+        if (FAILED(hr))
+        {
+            wprintf(L" FAILED to initialize Direct3D cubemap (%08X)\n", static_cast<unsigned int>(hr));
+            return 1;
+        }
+    }
+
     if (images == 1)
     {
         // TODO - perform equirectangular projection to cubemap
     }
     else
     {
-        // TODO - assemble cubemap
+        for (size_t face = 0; face < 6; ++face)
+        {
+            ComPtr<ID3D11ShaderResourceView> srv;
+            auto& input = loadedImages[face];
+
+            hr = CreateShaderResourceView(pDevice.Get(), input->GetImage(0, 0, 0), 1, input->GetMetadata(), srv.GetAddressOf());
+            if (FAILED(hr))
+            {
+                wprintf(L" FAILED to initialize Direct3D texture from image #%zu (%08X)\n", face, static_cast<unsigned int>(hr));
+                return 1;
+            }
+
+            cubemap[face].Begin(pContext.Get(), true);
+
+            // TODO -
+
+            cubemap[face].End(pContext.Get());
+
+            // TODO - assemble cubemap
+        }
     }
 
     // --- Create result ---------------------------------------------------------------
