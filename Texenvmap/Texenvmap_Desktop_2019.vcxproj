@@ -327,7 +327,20 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <None Include="Shaders\Compiled\Texenvmap_PSBasic.inc" />
+    <None Include="Shaders\Compiled\Texenvmap_PSBasic.pdb" />
+    <None Include="Shaders\Compiled\Texenvmap_VSBasic.inc" />
+    <None Include="Shaders\Compiled\Texenvmap_VSBasic.pdb" />
+    <None Include="Shaders\CompileShaders.cmd" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Shaders\Texenvmap.fx">
+      <FileType>Document</FileType>
+    </None>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
+  <Target Name="ATGEnsureShaders" BeforeTargets="PrepareForBuild">
+    <Exec Condition="!Exists('Shaders/Compiled/Texenvmap_VSBasic.inc')" WorkingDirectory="$(ProjectDir)Shaders" Command="CompileShaders" />
+  </Target>
 </Project>

@@ -220,6 +220,11 @@ namespace
 //////////////////////////////////////////////////////////////////////////////
 
 
+namespace Shaders
+{
+#include "Shaders/Compiled/Texenvmap_VSBasic.inc"
+#include "Shaders/Compiled/Texenvmap_PSBasic.inc"
+}
 
 
 //////////////////////////////////////////////////////////////////////////////
@@ -808,6 +813,54 @@ namespace
         22,20,21,
         23,20,22
     };
+
+
+    size_t FitPowerOf2(size_t targetx, size_t maxsize)
+    {
+        size_t x;
+        for (x = maxsize; x > 1; x >>= 1) { if (x <= targetx) break; }
+        return x;
+    }
+
+    void FitPowerOf2(size_t& targetx, size_t& targety, size_t maxsize)
+    {
+        float origAR = float(targetx) / float(targety);
+
+        if (targetx > targety)
+        {
+            size_t x;
+            for (x = maxsize; x > 1; x >>= 1) { if (x <= targetx) break; }
+            targetx = x;
+
+            float bestScore = FLT_MAX;
+            for (size_t y = maxsize; y > 0; y >>= 1)
+            {
+                float score = fabsf((float(x) / float(y)) - origAR);
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    targety = y;
+                }
+            }
+        }
+        else
+        {
+            size_t y;
+            for (y = maxsize; y > 1; y >>= 1) { if (y <= targety) break; }
+            targety = y;
+
+            float bestScore = FLT_MAX;
+            for (size_t x = maxsize; x > 0; x >>= 1)
+            {
+                float score = fabsf((float(x) / float(y)) - origAR);
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    targetx = x;
+                }
+            }
+        }
+    }
 }
 
 //--------------------------------------------------------------------------------------
@@ -1417,12 +1470,13 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         // TODO - Make pow2?
         if (images == 1)
         {
-            width = height = maxHeight;
+            width = height = FitPowerOf2(maxHeight, 16384);
         }
         else
         {
             width = maxWidth;
             height = maxHeight;
+            FitPowerOf2(width, height, 16384);
         }
     }
 
@@ -1430,7 +1484,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     size_t cubeHeight = (dwCommand == CMD_CUBIC) ? height : maxHeight;
 
     RenderTarget cubemap[6];
-    for (auto it : cubemap)
+    for (auto& it : cubemap)
     {
         hr = it.Create(pDevice.Get(), cubeWidth, cubeHeight, format);
         if (FAILED(hr))
@@ -1478,6 +1532,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     wprintf(L"\nWriting %ls ", szOutputFile);
     PrintInfo(result.GetMetadata());
     wprintf(L"\n");
+
     fflush(stdout);
 
     if (dwOptions & (1 << OPT_TOLOWER))
