@@ -21,6 +21,7 @@ set PCFXC=fxc.exe
 call :CompileShader Texenvmap vs VSBasic
 
 call :CompileShader Texenvmap ps PSBasic
+call :CompileShader Texenvmap ps PSEquiRect
 
 echo.
 

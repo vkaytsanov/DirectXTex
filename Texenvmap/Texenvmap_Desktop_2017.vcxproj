@@ -329,6 +329,8 @@
   <ItemGroup>
     <None Include="Shaders\Compiled\Texenvmap_PSBasic.inc" />
     <None Include="Shaders\Compiled\Texenvmap_PSBasic.pdb" />
+    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.inc" />
+    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.pdb" />
     <None Include="Shaders\Compiled\Texenvmap_VSBasic.inc" />
     <None Include="Shaders\Compiled\Texenvmap_VSBasic.pdb" />
     <None Include="Shaders\CompileShaders.cmd" />

@@ -42,5 +42,11 @@
     <None Include="Shaders\Compiled\Texenvmap_VSBasic.pdb">
       <Filter>Shaders\Symbols</Filter>
     </None>
+    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.inc">
+      <Filter>Shaders\Compiled</Filter>
+    </None>
+    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.pdb">
+      <Filter>Shaders\Symbols</Filter>
+    </None>
   </ItemGroup>
 </Project>

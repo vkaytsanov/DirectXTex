@@ -219,13 +219,12 @@ namespace
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 
-
-namespace Shaders
+namespace
 {
 #include "Shaders/Compiled/Texenvmap_VSBasic.inc"
 #include "Shaders/Compiled/Texenvmap_PSBasic.inc"
+#include "Shaders/Compiled/Texenvmap_PSEquiRect.inc"
 }
-
 
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -605,7 +604,103 @@ namespace
     }
 
 
-    // Render Target
+    class Shaders
+    {
+    public:
+        Shaders() = default;
+
+        HRESULT Create(ID3D11Device* device)
+        {
+            if (!device)
+                return E_INVALIDARG;
+
+            m_vertexShader.clear();
+            m_pixelShader.clear();
+
+            for (size_t j = 0; j < _countof(s_vs); ++j)
+            {
+                ComPtr<ID3D11VertexShader> shader;
+                HRESULT hr = device->CreateVertexShader(s_vs[j].code, s_vs[j].length, nullptr, shader.GetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+
+                m_vertexShader.emplace_back(shader);
+            }
+
+            for (size_t j = 0; j < _countof(s_ps); ++j)
+            {
+                ComPtr<ID3D11PixelShader> shader;
+                HRESULT hr = device->CreatePixelShader(s_ps[j].code, s_ps[j].length, nullptr, shader.GetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+
+                m_pixelShader.emplace_back(shader);
+            }
+
+            return S_OK;
+        }
+
+        void Apply(
+            unsigned int vsindex,
+            unsigned int psindex,
+            _In_ ID3D11DeviceContext* deviceContext)
+        {
+            if ((vsindex >= _countof(s_vs))
+                || (psindex >= _countof(s_ps))
+                || !deviceContext)
+                return;
+
+            deviceContext->VSSetShader(m_vertexShader[vsindex].Get(), nullptr, 0);
+            deviceContext->PSSetShader(m_pixelShader[psindex].Get(), nullptr, 0);
+        }
+
+        void GetVertexShaderBytecode(
+            unsigned int vsindex,
+            _Out_ void const** pShaderByteCode,
+            _Out_ size_t* pByteCodeLength)
+        {
+            if (pShaderByteCode)
+            {
+                *pShaderByteCode = nullptr;
+            }
+
+            if (pByteCodeLength)
+            {
+                *pByteCodeLength = 0;
+            }
+
+            if (!pShaderByteCode
+                || !pByteCodeLength
+                || (vsindex >= _countof(s_vs)))
+                return;
+
+            *pShaderByteCode = s_vs[vsindex].code;
+            *pByteCodeLength = s_vs[vsindex].length;
+        }
+
+    private:
+        std::vector<ComPtr<ID3D11VertexShader>> m_vertexShader;
+        std::vector<ComPtr<ID3D11PixelShader>> m_pixelShader;
+
+        struct ShaderBytecode
+        {
+            void const* code;
+            size_t length;
+        };
+
+        const ShaderBytecode s_vs[1] =
+        {
+            { Texenvmap_VSBasic, sizeof(Texenvmap_VSBasic) },
+        };
+
+        const ShaderBytecode s_ps[2] =
+        {
+            { Texenvmap_PSBasic, sizeof(Texenvmap_PSBasic) },
+            { Texenvmap_PSEquiRect, sizeof(Texenvmap_PSEquiRect) },
+        };
+    };
+
+
     class RenderTarget
     {
     public:
@@ -703,7 +798,7 @@ namespace
         { "TEXCOORD",    0, DXGI_FORMAT_R32G32_FLOAT,       0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
 
-    // Unit cube
+
     class UnitCube
     {
     public:
@@ -1157,6 +1252,14 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
     ComPtr<ID3D11DeviceContext> pContext;
     pDevice->GetImmediateContext(pContext.GetAddressOf());
+
+    Shaders shaders;
+    hr = shaders.Create(pDevice.Get());
+    if (FAILED(hr))
+    {
+        wprintf(L" FAILED creating Direct3D shaders (%x)\n", static_cast<unsigned int>(hr));
+        return 1;
+    }
 
     UnitCube unitCube;
     hr = unitCube.Create(pDevice.Get());
