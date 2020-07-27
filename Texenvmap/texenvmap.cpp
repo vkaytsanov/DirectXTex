@@ -604,6 +604,13 @@ namespace
     }
 
 
+    struct ConstantBuffer
+    {
+        XMFLOAT4X4 transform;
+    };
+
+    static_assert((sizeof(ConstantBuffer) % 16) == 0, "CB incorrect alignment");
+
     class Shaders
     {
     public:
@@ -637,13 +644,30 @@ namespace
                 m_pixelShader.emplace_back(shader);
             }
 
+            CD3D11_BUFFER_DESC desc(sizeof(ConstantBuffer), D3D11_BIND_CONSTANT_BUFFER, D3D11_USAGE_DYNAMIC, D3D11_CPU_ACCESS_WRITE);
+            HRESULT hr = device->CreateBuffer(&desc, nullptr, m_constantBuffer.ReleaseAndGetAddressOf());
+            if (FAILED(hr))
+                return hr;
+
             return S_OK;
         }
+
+        enum VS_INDEX : unsigned int
+        {
+            VS_BASIC = 0,
+        };
+
+        enum PS_INDEX : unsigned int
+        {
+            PS_BASIC = 0,
+            PS_EQUIRECT,
+        };
 
         void Apply(
             unsigned int vsindex,
             unsigned int psindex,
-            _In_ ID3D11DeviceContext* deviceContext)
+            _In_ ID3D11DeviceContext* deviceContext,
+            _In_opt_ ConstantBuffer* cbuffer)
         {
             if ((vsindex >= _countof(s_vs))
                 || (psindex >= _countof(s_ps))
@@ -652,6 +676,18 @@ namespace
 
             deviceContext->VSSetShader(m_vertexShader[vsindex].Get(), nullptr, 0);
             deviceContext->PSSetShader(m_pixelShader[psindex].Get(), nullptr, 0);
+
+            if (cbuffer)
+            {
+                D3D11_MAPPED_SUBRESOURCE mapped = {};
+                if (SUCCEEDED(deviceContext->Map(m_constantBuffer.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+                {
+                    memcpy(mapped.pData, cbuffer, sizeof(ConstantBuffer));
+                    deviceContext->Unmap(m_constantBuffer.Get(), 0);
+                }
+                auto cb = m_constantBuffer.Get();
+                deviceContext->VSSetConstantBuffers(0, 1, &cb);
+            }
         }
 
         void GetVertexShaderBytecode(
@@ -679,6 +715,7 @@ namespace
         }
 
     private:
+        ComPtr<ID3D11Buffer> m_constantBuffer;
         std::vector<ComPtr<ID3D11VertexShader>> m_vertexShader;
         std::vector<ComPtr<ID3D11PixelShader>> m_pixelShader;
 
@@ -698,6 +735,88 @@ namespace
             { Texenvmap_PSBasic, sizeof(Texenvmap_PSBasic) },
             { Texenvmap_PSEquiRect, sizeof(Texenvmap_PSEquiRect) },
         };
+    };
+
+
+    class StateObjects
+    {
+    public:
+        StateObjects() = default;
+
+        HRESULT Create(ID3D11Device* device)
+        {
+            if (!device)
+                return E_INVALIDARG;
+
+            {
+                D3D11_BLEND_DESC desc = {};
+                desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+
+                desc.RenderTarget[0].BlendEnable = FALSE;
+                desc.RenderTarget[0].SrcBlend = desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+                desc.RenderTarget[0].DestBlend = desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+                desc.RenderTarget[0].BlendOp = desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+
+                HRESULT hr = device->CreateBlendState(&desc, m_opaque.ReleaseAndGetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+            }
+
+            {
+                D3D11_DEPTH_STENCIL_DESC desc = {};
+                desc.DepthFunc = D3D11_COMPARISON_LESS_EQUAL;
+                desc.StencilReadMask = D3D11_DEFAULT_STENCIL_READ_MASK;
+                desc.StencilWriteMask = D3D11_DEFAULT_STENCIL_WRITE_MASK;
+
+                desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+                desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+                desc.FrontFace.StencilFailOp = D3D11_STENCIL_OP_KEEP;
+                desc.FrontFace.StencilDepthFailOp = D3D11_STENCIL_OP_KEEP;
+
+                desc.BackFace = desc.FrontFace;
+                HRESULT hr = device->CreateDepthStencilState(&desc, m_depthNone.ReleaseAndGetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+            }
+
+            {
+                D3D11_RASTERIZER_DESC desc = {};
+                desc.CullMode = D3D11_CULL_NONE;
+                desc.FillMode = D3D11_FILL_SOLID;
+                desc.DepthClipEnable = TRUE;
+                desc.MultisampleEnable = TRUE;
+
+                HRESULT hr = device->CreateRasterizerState(&desc, m_cullNone.ReleaseAndGetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+            }
+
+            {
+                D3D11_SAMPLER_DESC desc = {};
+                desc.MaxAnisotropy = D3D11_MAX_MAXANISOTROPY;
+                desc.MaxLOD = FLT_MAX;
+                desc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+
+                desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+                desc.AddressU = desc.AddressV = desc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+                HRESULT hr = device->CreateSamplerState(&desc, m_linearClamp.ReleaseAndGetAddressOf());
+                if (FAILED(hr))
+                    return hr;
+            }
+
+            return S_OK;
+        }
+
+        ID3D11BlendState* Opaque() const noexcept { return m_opaque.Get(); }
+        ID3D11DepthStencilState* DepthNone() const noexcept { return m_depthNone.Get(); }
+        ID3D11RasterizerState* CullNone() const noexcept { return m_cullNone.Get(); }
+        ID3D11SamplerState* LinearClamp() const noexcept { return m_linearClamp.Get(); }
+
+    private:
+        ComPtr<ID3D11BlendState> m_opaque;
+        ComPtr<ID3D11DepthStencilState> m_depthNone;
+        ComPtr<ID3D11RasterizerState> m_cullNone;
+        ComPtr<ID3D11SamplerState> m_linearClamp;
     };
 
 
@@ -746,6 +865,12 @@ namespace
                     return hr;
             }
 
+            viewPort.TopLeftX = viewPort.TopLeftY = 0.f;
+            viewPort.Width = static_cast<float>(width);
+            viewPort.Height = static_cast<float>(height);
+            viewPort.MinDepth = D3D11_MIN_DEPTH;
+            viewPort.MaxDepth = D3D11_MAX_DEPTH;
+
             return hr;
         }
 
@@ -756,11 +881,13 @@ namespace
 
             if (clear)
             {
-                float black[4] = {};
+                float black[4] = { 0.f, 0.f, 0.f, 1.f };
                 context->ClearRenderTargetView(rtv.Get(), black);
             }
 
             context->OMSetRenderTargets(1, rtv.GetAddressOf(), nullptr);
+
+            context->RSSetViewports(1, &viewPort);
         }
 
         void End(ID3D11DeviceContext* context)
@@ -776,6 +903,7 @@ namespace
         ID3D11Texture2D* GetTexture() const { return texture.Get(); }
 
     private:
+        D3D11_VIEWPORT viewPort;
         Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
         Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
         Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
@@ -842,6 +970,28 @@ namespace
             context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
             context->DrawIndexed(nFaces * 3, 0, 0);
+        }
+
+        HRESULT CreateInputLayout(_In_ ID3D11Device* device, Shaders& shaders, _COM_Outptr_ ID3D11InputLayout** layout)
+        {
+            if (layout)
+            {
+                *layout = nullptr;
+            }
+
+            if (!device || !layout)
+                return E_INVALIDARG;
+
+            const void* code = nullptr;;
+            size_t length = 0;
+            shaders.GetVertexShaderBytecode(Shaders::VS_BASIC, &code, &length);
+
+            return device->CreateInputLayout(
+                VertexPositionTexture::InputElements,
+                VertexPositionTexture::InputElementCount,
+                code,
+                length,
+                layout);
         }
 
     private:
@@ -1253,6 +1403,14 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     ComPtr<ID3D11DeviceContext> pContext;
     pDevice->GetImmediateContext(pContext.GetAddressOf());
 
+    StateObjects stateObjects;
+    hr = stateObjects.Create(pDevice.Get());
+    if (FAILED(hr))
+    {
+        wprintf(L" FAILED creating Direct3D state objects (%x)\n", static_cast<unsigned int>(hr));
+        return 1;
+    }
+
     Shaders shaders;
     hr = shaders.Create(pDevice.Get());
     if (FAILED(hr))
@@ -1597,13 +1755,26 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
     }
 
+    ComPtr<ID3D11InputLayout> inputLayout;
+    hr = unitCube.CreateInputLayout(pDevice.Get(), shaders, inputLayout.GetAddressOf());
+    if (FAILED(hr))
+    {
+        wprintf(L" FAILED to initialize Direct3D input layout(%08X)\n", static_cast<unsigned int>(hr));
+        return 1;
+    }
+
     if (images == 1)
     {
         // TODO - perform equirectangular projection to cubemap
     }
     else
     {
-        for (size_t face = 0; face < 6; ++face)
+        pContext->OMSetBlendState(stateObjects.Opaque(), nullptr, 0xFFFFFFFF);
+        pContext->OMSetDepthStencilState(stateObjects.DepthNone(), 0);
+        pContext->RSSetState(stateObjects.CullNone());
+        auto linear = stateObjects.LinearClamp();
+
+        for (size_t face = 0; face < 6; ++face) 
         {
             ComPtr<ID3D11ShaderResourceView> srv;
             auto& input = loadedImages[face];
@@ -1615,13 +1786,21 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 return 1;
             }
 
-            cubemap[face].Begin(pContext.Get(), true);
+            cubemap[face].Begin(pContext.Get(), false);
 
-            // TODO -
+            XMMATRIX mat = XMMatrixIdentity();
+
+            ConstantBuffer cbuffer;
+            XMStoreFloat4x4(&cbuffer.transform, mat);
+
+            shaders.Apply(Shaders::VS_BASIC, Shaders::PS_BASIC, pContext.Get(), &cbuffer);
+            pContext->IASetInputLayout(inputLayout.Get());
+            pContext->PSSetShaderResources(0, 1, srv.GetAddressOf());
+            pContext->PSSetSamplers(0, 1, &linear);
+
+            unitCube.Draw(pContext.Get());
 
             cubemap[face].End(pContext.Get());
-
-            // TODO - assemble cubemap
         }
     }
 
@@ -1630,12 +1809,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     // TODO - sphere / dual parabolic projection
 
     // --- Write result ----------------------------------------------------------------
-#if 0
-    // Write texture
     wprintf(L"\nWriting %ls ", szOutputFile);
-    PrintInfo(result.GetMetadata());
-    wprintf(L"\n");
-
     fflush(stdout);
 
     if (dwOptions & (1 << OPT_TOLOWER))
@@ -1652,15 +1826,48 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
     }
 
-    hr = SaveToDDSFile(result.GetImages(), result.GetImageCount(), result.GetMetadata(),
-        (dwOptions & (1 << OPT_USE_DX10)) ? (DDS_FLAGS_FORCE_DX10_EXT | DDS_FLAGS_FORCE_DX10_EXT_MISC2) : DDS_FLAGS_NONE,
-        szOutputFile);
-    if (FAILED(hr))
+    ScratchImage image[6];
+    Image imageArray[6] = {};
+    switch (dwCommand)
     {
-        wprintf(L"\nFAILED (%x)\n", static_cast<unsigned int>(hr));
+    case CMD_CUBIC:
+        for (size_t face = 0; face < 6; ++face)
+        {
+            hr = CaptureTexture(pDevice.Get(), pContext.Get(), cubemap[face].GetTexture(), image[face]);
+            if (FAILED(hr))
+            {
+                wprintf(L" FAILED to capture Direct3D texture from image #%zu (%08X)\n", face, static_cast<unsigned int>(hr));
+                return 1;
+            }
+
+            imageArray[face] = *image[face].GetImage(0, 0, 0);
+        }
+
+        {
+            TexMetadata mdata = {};
+            mdata.width = imageArray[0].width;
+            mdata.height = imageArray[0].height;
+            mdata.format = imageArray[0].format;
+            mdata.arraySize = 6;
+            mdata.depth = mdata.mipLevels = 1;
+            mdata.miscFlags = TEX_MISC_TEXTURECUBE;
+            mdata.dimension = TEX_DIMENSION_TEXTURE2D;
+
+            hr = SaveToDDSFile(imageArray, 6, mdata,
+                (dwOptions & (1 << OPT_USE_DX10)) ? (DDS_FLAGS_FORCE_DX10_EXT | DDS_FLAGS_FORCE_DX10_EXT_MISC2) : DDS_FLAGS_NONE,
+                szOutputFile);
+            if (FAILED(hr))
+            {
+                wprintf(L"\nFAILED (%x)\n", static_cast<unsigned int>(hr));
+                return 1;
+            }
+        }
+        break;
+
+    default:
+        printf("ERROR: E_NOTIMPL\n");
         return 1;
     }
-#endif
 
     return 0;
 }

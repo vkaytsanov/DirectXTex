@@ -47,6 +47,7 @@ float4 PSBasic(VSOutput pin) : SV_Target0
     return float4(color, 1.0);
 }
 
+// Pixel shader: Equirectangular projection to cubemap
 float2 SphereMap(float3 vec)
 {
     float2 uv = float2(atan2(vec.z, vec.x), asin(vec.y));
