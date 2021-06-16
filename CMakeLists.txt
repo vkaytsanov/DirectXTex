@@ -195,13 +195,12 @@ if(BUILD_TOOLS AND WIN32 AND (NOT WINDOWS_STORE))
   target_link_libraries(texconv ${PROJECT_NAME} ole32.lib shell32.lib version.lib)
   source_group(texconv REGULAR_EXPRESSION Texconv/*.*)
 
-  add_executable(texdiag
-    Texdiag/texdiag.cpp)
+  add_executable(texdiag Texdiag/texdiag.cpp)
   target_link_libraries(texdiag ${PROJECT_NAME} ole32.lib version.lib)
   source_group(texdiag REGULAR_EXPRESSION Texdiag/*.*)
 
   add_executable(texenvmap Texenvmap/texenvmap.cpp)
-  target_link_libraries(texenvmap ${PROJECT_NAME})
+  target_link_libraries(texenvmap ${PROJECT_NAME} ole32.lib version.lib)
   source_group(texenvmap REGULAR_EXPRESSION Texenvmap/*.*)
 
   if(ENABLE_OPENEXR_SUPPORT)
@@ -260,7 +259,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(${PROJECT_NAME} PRIVATE /permissive- /JMC- /Zc:__cplusplus)
-
     if(BUILD_TOOLS AND WIN32 AND (NOT WINDOWS_STORE))
       target_compile_options(texassemble PRIVATE /permissive- /Zc:__cplusplus)
       target_compile_options(texconv PRIVATE /permissive- /Zc:__cplusplus)
