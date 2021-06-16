@@ -3,7 +3,7 @@
 //
 // DirectX Texture environment map tool
 //
-// Copyright (c) Microsoft Corporation. All rights reserved.
+// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 //
 // http://go.microsoft.com/fwlink/?LinkId=248926
@@ -20,13 +20,22 @@
 #define NOHELP
 #pragma warning(pop)
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <assert.h>
-
+#include <algorithm>
+#include <cassert>
+#include <cstddef>
+#include <cstdio>
+#include <cstdlib>
+#include <cwchar>
+#include <cwctype>
 #include <fstream>
-#include <memory>
+#include <iterator>
 #include <list>
+#include <locale>
+#include <memory>
+#include <new>
+#include <set>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <wrl/client.h>
@@ -40,6 +49,14 @@
 #pragma warning(disable : 4619 4616 26812)
 
 #include "DirectXTex.h"
+
+//Uncomment to add support for OpenEXR (.exr)
+//#define USE_OPENEXR
+
+#ifdef USE_OPENEXR
+// See <https://github.com/Microsoft/DirectXTex/wiki/Adding-OpenEXR> for details
+#include "DirectXTexEXR.h"
+#endif
 
 using namespace DirectX;
 using Microsoft::WRL::ComPtr;
@@ -55,7 +72,7 @@ namespace
         CMD_MAX
     };
 
-    enum OPTIONS
+    enum OPTIONS : uint32_t
     {
         OPT_RECURSIVE = 1,
         OPT_FILELIST,
@@ -80,7 +97,7 @@ namespace
         OPT_MAX
     };
 
-    static_assert(OPT_MAX <= 32, "dwOptions is a DWORD bitfield");
+    static_assert(OPT_MAX <= 32, "dwOptions is a unsigned int bitfield");
 
     struct SConversion
     {
@@ -89,8 +106,8 @@ namespace
 
     struct SValue
     {
-        LPCWSTR pName;
-        DWORD dwValue;
+        const wchar_t*  name;
+        uint32_t        value;
     };
 
     //////////////////////////////////////////////////////////////////////////////
@@ -163,6 +180,7 @@ namespace
     {
         { L"RGBA", DXGI_FORMAT_R8G8B8A8_UNORM },
         { L"BGRA", DXGI_FORMAT_B8G8R8A8_UNORM },
+        { L"BGR",  DXGI_FORMAT_B8G8R8X8_UNORM },
 
         { L"FP16", DXGI_FORMAT_R16G16B16A16_FLOAT },
         { L"FP32", DXGI_FORMAT_R32G32B32A32_FLOAT },
@@ -197,6 +215,10 @@ namespace
 #define CODEC_TGA 0xFFFF0002
 #define CODEC_HDR 0xFFFF0005
 
+#ifdef USE_OPENEXR
+#define CODEC_EXR 0xFFFF0006
+#endif
+
     const SValue g_pExtFileTypes[] =
     {
         { L".BMP",  WIC_CODEC_BMP },
@@ -211,6 +233,9 @@ namespace
         { L".WDP",  WIC_CODEC_WMP },
         { L".HDP",  WIC_CODEC_WMP },
         { L".JXR",  WIC_CODEC_WMP },
+        #ifdef USE_OPENEXR
+        { L"EXR",   CODEC_EXR },
+        #endif
         { nullptr,  CODEC_DDS }
     };
 }
@@ -242,19 +267,18 @@ namespace
 #pragma prefast(disable : 26018, "Only used with static internal arrays")
 #endif
 
-    DWORD LookupByName(const wchar_t* pName, const SValue* pArray)
+    uint32_t LookupByName(const wchar_t *pName, const SValue *pArray)
     {
-        while (pArray->pName)
+        while (pArray->name)
         {
-            if (!_wcsicmp(pName, pArray->pName))
-                return pArray->dwValue;
+            if (!_wcsicmp(pName, pArray->name))
+                return pArray->value;
 
             pArray++;
         }
 
         return 0;
     }
-
 
     void SearchForFiles(const wchar_t* path, std::list<SConversion>& files, bool recursive)
     {
@@ -274,7 +298,7 @@ namespace
                     wchar_t dir[_MAX_DIR] = {};
                     _wsplitpath_s(path, drive, _MAX_DRIVE, dir, _MAX_DIR, nullptr, 0, nullptr, 0);
 
-                    SConversion conv;
+                    SConversion conv = {};
                     _wmakepath_s(conv.szSrc, drive, dir, findData.cFileName, nullptr);
                     files.push_back(conv);
                 }
@@ -330,19 +354,101 @@ namespace
         }
     }
 
+    void ProcessFileList(std::wifstream& inFile, std::list<SConversion>& files)
+    {
+        std::list<SConversion> flist;
+        std::set<std::wstring> excludes;
+        wchar_t fname[1024] = {};
+        for (;;)
+        {
+            inFile >> fname;
+            if (!inFile)
+                break;
+
+            if (*fname == L'#')
+            {
+                // Comment
+            }
+            else if (*fname == L'-')
+            {
+                if (flist.empty())
+                {
+                    wprintf(L"WARNING: Ignoring the line '%ls' in -flist\n", fname);
+                }
+                else
+                {
+                    if (wcspbrk(fname, L"?*") != nullptr)
+                    {
+                        std::list<SConversion> removeFiles;
+                        SearchForFiles(&fname[1], removeFiles, false);
+
+                        for (auto it : removeFiles)
+                        {
+                            _wcslwr_s(it.szSrc);
+                            excludes.insert(it.szSrc);
+                        }
+                    }
+                    else
+                    {
+                        std::wstring name = (fname + 1);
+                        std::transform(name.begin(), name.end(), name.begin(), towlower);
+                        excludes.insert(name);
+                    }
+                }
+            }
+            else if (wcspbrk(fname, L"?*") != nullptr)
+            {
+                SearchForFiles(fname, flist, false);
+            }
+            else
+            {
+                SConversion conv = {};
+                wcscpy_s(conv.szSrc, MAX_PATH, fname);
+                flist.push_back(conv);
+            }
+
+            inFile.ignore(1000, '\n');
+        }
+
+        inFile.close();
+
+        if (!excludes.empty())
+        {
+            // Remove any excluded files
+            for (auto it = flist.begin(); it != flist.end();)
+            {
+                std::wstring name = it->szSrc;
+                std::transform(name.begin(), name.end(), name.begin(), towlower);
+                auto item = it;
+                ++it;
+                if (excludes.find(name) != excludes.end())
+                {
+                    flist.erase(item);
+                }
+            }
+        }
+
+        if (flist.empty())
+        {
+            wprintf(L"WARNING: No file names found in -flist\n");
+        }
+        else
+        {
+            files.splice(files.end(), flist);
+        }
+    }
 
     void PrintFormat(DXGI_FORMAT Format)
     {
-        for (const SValue* pFormat = g_pFormats; pFormat->pName; pFormat++)
+        for (auto pFormat = g_pFormats; pFormat->name; pFormat++)
         {
-            if (static_cast<DXGI_FORMAT>(pFormat->dwValue) == Format)
+            if (static_cast<DXGI_FORMAT>(pFormat->value) == Format)
             {
-                wprintf(L"%ls", pFormat->pName);
+                wprintf(L"%ls", pFormat->name);
                 break;
             }
         }
     }
-
 
     void PrintInfo(const TexMetadata& info)
     {
@@ -403,12 +509,11 @@ namespace
         wprintf(L")");
     }
 
-
-    void PrintList(size_t cch, const SValue* pValue)
+    void PrintList(size_t cch, const SValue *pValue)
     {
-        while (pValue->pName)
+        while (pValue->name)
         {
-            size_t cchName = wcslen(pValue->pName);
+            size_t cchName = wcslen(pValue->name);
 
             if (cch + cchName + 2 >= 80)
             {
@@ -416,7 +521,7 @@ namespace
                 cch = 6;
             }
 
-            wprintf(L"%ls ", pValue->pName);
+            wprintf(L"%ls ", pValue->name);
             cch += cchName + 2;
             pValue++;
         }
@@ -424,20 +529,74 @@ namespace
         wprintf(L"\n");
     }
 
-
     void PrintLogo()
     {
-        wprintf(L"Microsoft (R) DirectX Environment Map Tool (DirectXTex version)\n");
-        wprintf(L"Copyright (C) Microsoft Corp. All rights reserved.\n");
+        wchar_t version[32] = {};
+
+        wchar_t appName[_MAX_PATH] = {};
+        if (GetModuleFileNameW(nullptr, appName, static_cast<DWORD>(std::size(appName))))
+        {
+            DWORD size = GetFileVersionInfoSizeW(appName, nullptr);
+            if (size > 0)
+            {
+                auto verInfo = std::make_unique<uint8_t[]>(size);
+                if (GetFileVersionInfoW(appName, 0, size, verInfo.get()))
+                {
+                    LPVOID lpstr = nullptr;
+                    UINT strLen = 0;
+                    if (VerQueryValueW(verInfo.get(), L"\\StringFileInfo\\040904B0\\ProductVersion", &lpstr, &strLen))
+                    {
+                        wcsncpy_s(version, reinterpret_cast<const wchar_t*>(lpstr), strLen);
+                    }
+                }
+            }
+        }
+
+        if (!*version || wcscmp(version, L"1.0.0.0") == 0)
+        {
+            swprintf_s(version, L"%03d (library)", DIRECTX_TEX_VERSION);
+        }
+
+        wprintf(L"Microsoft (R) DirectX Environment Map Tool [DirectXTex] Version %ls\n", version);
+        wprintf(L"Copyright (C) Microsoft Corp.\n");
 #ifdef _DEBUG
         wprintf(L"*** Debug build ***\n");
 #endif
         wprintf(L"\n");
     }
 
+    const wchar_t* GetErrorDesc(HRESULT hr)
+    {
+        static wchar_t desc[1024] = {};
+
+        LPWSTR errorText = nullptr;
+
+        DWORD result = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_ALLOCATE_BUFFER,
+            nullptr, static_cast<DWORD>(hr),
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), reinterpret_cast<LPWSTR>(&errorText), 0, nullptr);
+
+        *desc = 0;
+
+        if (result > 0 && errorText)
+        {
+            swprintf_s(desc, L": %ls", errorText);
+
+            size_t len = wcslen(desc);
+            if (len >= 2)
+            {
+                desc[len - 2] = 0;
+                desc[len - 1] = 0;
+            }
+
+            if (errorText)
+                LocalFree(errorText);
+        }
+
+        return desc;
+    }
 
     _Success_(return != false)
-        bool GetDXGIFactory(_Outptr_ IDXGIFactory1 * *pFactory) noexcept
+        bool GetDXGIFactory(_Outptr_ IDXGIFactory1** pFactory) noexcept
     {
         if (!pFactory)
             return false;
@@ -1125,16 +1284,19 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     TEX_FILTER_FLAGS dwFilter = TEX_FILTER_DEFAULT;
     TEX_FILTER_FLAGS dwSRGB = TEX_FILTER_DEFAULT;
     TEX_FILTER_FLAGS dwFilterOpts = TEX_FILTER_DEFAULT;
-    DWORD fileType = WIC_CODEC_BMP;
+    uint32_t fileType = WIC_CODEC_BMP;
     int adapter = -1;
 
     wchar_t szOutputFile[MAX_PATH] = {};
+
+    // Set locale for output since GetErrorDesc can get localized strings.
+    std::locale::global(std::locale(""));
 
     // Initialize COM (needed for WIC)
     HRESULT hr = hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     if (FAILED(hr))
     {
-        wprintf(L"Failed to initialize COM (%08X)\n", static_cast<unsigned int>(hr));
+        wprintf(L"Failed to initialize COM (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
         return 1;
     }
 
@@ -1145,7 +1307,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         return 0;
     }
 
-    DWORD dwCommand = LookupByName(argv[1], g_pCommands);
+    uint32_t dwCommand = LookupByName(argv[1], g_pCommands);
     switch (dwCommand)
     {
     case CMD_CUBIC:
@@ -1159,7 +1321,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         return 1;
     }
 
-    DWORD dwOptions = 0;
+    uint32_t dwOptions = 0;
     std::list<SConversion> conversion;
 
     for (int iArg = 2; iArg < argc; iArg++)
@@ -1176,7 +1338,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             if (*pValue)
                 *pValue++ = 0;
 
-            DWORD dwOption = LookupByName(pArg, g_pOptions);
+            uint32_t dwOption = LookupByName(pArg, g_pOptions);
 
             if (!dwOption || (dwOptions & (1 << dwOption)))
             {
@@ -1277,7 +1439,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             {
                 wcscpy_s(szOutputFile, MAX_PATH, pValue);
 
-                wchar_t ext[_MAX_EXT];
+                wchar_t ext[_MAX_EXT] = {};
                 _wsplitpath_s(szOutputFile, nullptr, 0, nullptr, 0, nullptr, 0, ext, _MAX_EXT);
 
                 fileType = LookupByName(ext, g_pExtFileTypes);
@@ -1327,37 +1489,8 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                     wprintf(L"Error opening -flist file %ls\n", pValue);
                     return 1;
                 }
-                wchar_t fname[1024] = {};
-                for (;;)
-                {
-                    inFile >> fname;
-                    if (!inFile)
-                        break;
 
-                    if (*fname == L'#')
-                    {
-                        // Comment
-                    }
-                    else if (*fname == L'-')
-                    {
-                        wprintf(L"Command-line arguments not supported in -flist file\n");
-                        return 1;
-                    }
-                    else if (wcspbrk(fname, L"?*") != nullptr)
-                    {
-                        wprintf(L"Wildcards not supported in -flist file\n");
-                        return 1;
-                    }
-                    else
-                    {
-                        SConversion conv;
-                        wcscpy_s(conv.szSrc, MAX_PATH, fname);
-                        conversion.push_back(conv);
-                    }
-
-                    inFile.ignore(1000, '\n');
-                }
-                inFile.close();
+                ProcessFileList(inFile, conversion);
             }
             break;
 
@@ -1377,7 +1510,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         }
         else
         {
-            SConversion conv;
+            SConversion conv = {};
             wcscpy_s(conv.szSrc, MAX_PATH, pArg);
 
             conversion.push_back(conv);
@@ -1407,7 +1540,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     hr = stateObjects.Create(pDevice.Get());
     if (FAILED(hr))
     {
-        wprintf(L" FAILED creating Direct3D state objects (%x)\n", static_cast<unsigned int>(hr));
+        wprintf(L" FAILED creating Direct3D state objects (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
         return 1;
     }
 
@@ -1415,7 +1548,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     hr = shaders.Create(pDevice.Get());
     if (FAILED(hr))
     {
-        wprintf(L" FAILED creating Direct3D shaders (%x)\n", static_cast<unsigned int>(hr));
+        wprintf(L" FAILED creating Direct3D shaders (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
         return 1;
     }
 
@@ -1423,7 +1556,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     hr = unitCube.Create(pDevice.Get());
     if (FAILED(hr))
     {
-        wprintf(L" FAILED creating Direct3D unit cube (%x)\n", static_cast<unsigned int>(hr));
+        wprintf(L" FAILED creating Direct3D unit cube (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
         return 1;
     }
 
@@ -1491,7 +1624,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadFromDDSFile(pConv->szSrc, DDS_FLAGS_ALLOW_LARGE_FILES, &info, *image);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
 
@@ -1512,7 +1645,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadFromTGAFile(pConv->szSrc, &info, *image);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
         }
@@ -1521,10 +1654,22 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadFromHDRFile(pConv->szSrc, &info, *image);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
         }
+#ifdef USE_OPENEXR
+        else if (_wcsicmp(ext, L".exr") == 0)
+        {
+            hr = LoadFromEXRFile(pConv->szSrc, &info, *image);
+            if (FAILED(hr))
+            {
+                wprintf(L" FAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
+                retVal = 1;
+                continue;
+            }
+        }
+#endif
         else
         {
             // WIC shares the same filter values for mode and dither
@@ -1538,7 +1683,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = LoadFromWICFile(pConv->szSrc, WIC_FLAGS_NONE | dwFilter, &info, *image);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
         }
@@ -1564,7 +1709,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = ConvertToSinglePlane(img, nimg, info, *timage);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED [converttosingleplane] (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED [converttosingleplane] (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 continue;
             }
 
@@ -1600,7 +1745,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = Decompress(img, nimg, info, DXGI_FORMAT_UNKNOWN /* picks good default */, *timage.get());
             if (FAILED(hr))
             {
-                wprintf(L" FAILED [decompress] (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L" FAILED [decompress] (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 continue;
             }
 
@@ -1648,7 +1793,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 hr = PremultiplyAlpha(img, nimg, info, TEX_PMALPHA_REVERSE | dwSRGB, *timage);
                 if (FAILED(hr))
                 {
-                    wprintf(L" FAILED [demultiply alpha] (%x)\n", static_cast<unsigned int>(hr));
+                    wprintf(L" FAILED [demultiply alpha] (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                     continue;
                 }
 
@@ -1696,7 +1841,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 hr = timage->InitializeFromImage(*img);
                 if (FAILED(hr))
                 {
-                    wprintf(L" FAILED [splitting array] (%x)\n", static_cast<unsigned int>(hr));
+                    wprintf(L" FAILED [splitting array] (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                     return 1;
                 }
 
@@ -1750,7 +1895,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
         hr = it.Create(pDevice.Get(), cubeWidth, cubeHeight, format);
         if (FAILED(hr))
         {
-            wprintf(L" FAILED to initialize Direct3D cubemap (%08X)\n", static_cast<unsigned int>(hr));
+            wprintf(L" FAILED to initialize Direct3D cubemap (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
             return 1;
         }
     }
@@ -1759,7 +1904,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     hr = unitCube.CreateInputLayout(pDevice.Get(), shaders, inputLayout.GetAddressOf());
     if (FAILED(hr))
     {
-        wprintf(L" FAILED to initialize Direct3D input layout(%08X)\n", static_cast<unsigned int>(hr));
+        wprintf(L" FAILED to initialize Direct3D input layout (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
         return 1;
     }
 
@@ -1782,7 +1927,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = CreateShaderResourceView(pDevice.Get(), input->GetImage(0, 0, 0), 1, input->GetMetadata(), srv.GetAddressOf());
             if (FAILED(hr))
             {
-                wprintf(L" FAILED to initialize Direct3D texture from image #%zu (%08X)\n", face, static_cast<unsigned int>(hr));
+                wprintf(L" FAILED to initialize Direct3D texture from image #%zu (%08X%ls)\n", face, static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
 
@@ -1836,7 +1981,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
             hr = CaptureTexture(pDevice.Get(), pContext.Get(), cubemap[face].GetTexture(), image[face]);
             if (FAILED(hr))
             {
-                wprintf(L" FAILED to capture Direct3D texture from image #%zu (%08X)\n", face, static_cast<unsigned int>(hr));
+                wprintf(L" FAILED to capture Direct3D texture from image #%zu (%08X%ls)\n", face, static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
 
@@ -1858,7 +2003,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
                 szOutputFile);
             if (FAILED(hr))
             {
-                wprintf(L"\nFAILED (%x)\n", static_cast<unsigned int>(hr));
+                wprintf(L"\nFAILED (%08X%ls)\n", static_cast<unsigned int>(hr), GetErrorDesc(hr));
                 return 1;
             }
         }
