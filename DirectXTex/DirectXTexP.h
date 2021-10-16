@@ -93,9 +93,15 @@
 #endif
 
 #ifdef _GAMING_XBOX_SCARLETT
+#pragma warning(push)
+#pragma warning(disable: 5204 5249)
 #include <d3d12_xs.h>
+#pragma warning(pop)
 #elif defined(_GAMING_XBOX)
+#pragma warning(push)
+#pragma warning(disable: 5204)
 #include <d3d12_x.h>
+#pragma warning(pop)
 #elif defined(_XBOX_ONE) && defined(_TITLE)
 #include <d3d12_x.h>
 #include <d3d11_x.h>
@@ -144,7 +150,11 @@
 #include <malloc.h>
 
 #ifdef WIN32
+#ifdef NTDDI_WIN10_FE
+#include <ole2.h>
+#else
 #include <Ole2.h>
+#endif
 #include <wincodec.h>
 #include <wrl\client.h>
 #else
