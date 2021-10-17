@@ -1063,9 +1063,9 @@ namespace
 
     private:
         D3D11_VIEWPORT viewPort;
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
-        Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
+        ComPtr<ID3D11Texture2D> texture;
+        ComPtr<ID3D11ShaderResourceView> srv;
+        ComPtr<ID3D11RenderTargetView> rtv;
     };
 
 
@@ -1160,8 +1160,8 @@ namespace
         static constexpr UINT nFaces = 12;
         static const uint16_t c_cubeIndices[nFaces * 3];
 
-        Microsoft::WRL::ComPtr<ID3D11Buffer> vertexBuffer;
-        Microsoft::WRL::ComPtr<ID3D11Buffer> indexBuffer;
+        ComPtr<ID3D11Buffer> vertexBuffer;
+        ComPtr<ID3D11Buffer> indexBuffer;
     };
 
     const VertexPositionTexture UnitCube::c_cubeVertices[] =
