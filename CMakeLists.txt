@@ -216,7 +216,20 @@ if(BUILD_TOOLS AND WIN32 AND (NOT WINDOWS_STORE))
   target_link_libraries(texdiag ${PROJECT_NAME} ole32.lib version.lib)
   source_group(texdiag REGULAR_EXPRESSION Texdiag/*.*)
 
-  add_executable(texenvmap Texenvmap/texenvmap.cpp)
+  if (NOT USE_PREBUILT_SHADERS)
+    add_custom_command(
+        OUTPUT "${COMPILED_SHADERS}/Texenvmap_VSBasic.inc"
+        MAIN_DEPENDENCY "${PROJECT_SOURCE_DIR}/Texenvmap/Shaders/CompileShaders.cmd"
+        DEPENDS "${PROJECT_SOURCE_DIR}/Texenvmap/Shaders/Texenvmap.fx"
+        COMMENT "Generating HLSL shaders for texenvmap..."
+        COMMAND set CompileShadersOutput=${COMPILED_SHADERS}
+        COMMAND CompileShaders.cmd
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/Texenvmap/Shaders"
+        USES_TERMINAL)
+  endif()
+
+  add_executable(texenvmap Texenvmap/texenvmap.cpp ${COMPILED_SHADERS}/Texenvmap_VSBasic.inc)
+  target_include_directories(texenvmap PRIVATE ${COMPILED_SHADERS})
   target_link_libraries(texenvmap ${PROJECT_NAME} ole32.lib version.lib)
   source_group(texenvmap REGULAR_EXPRESSION Texenvmap/*.*)
 

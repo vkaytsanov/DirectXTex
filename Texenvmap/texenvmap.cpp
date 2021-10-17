@@ -63,7 +63,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace
 {
-    enum COMMANDS
+    enum COMMANDS : uint32_t
     {
         CMD_CUBIC = 1,
         CMD_SPHERE,
@@ -246,9 +246,9 @@ namespace
 
 namespace
 {
-#include "Shaders/Compiled/Texenvmap_VSBasic.inc"
-#include "Shaders/Compiled/Texenvmap_PSBasic.inc"
-#include "Shaders/Compiled/Texenvmap_PSEquiRect.inc"
+#include "Texenvmap_VSBasic.inc"
+#include "Texenvmap_PSBasic.inc"
+#include "Texenvmap_PSEquiRect.inc"
 }
 
 //////////////////////////////////////////////////////////////////////////////

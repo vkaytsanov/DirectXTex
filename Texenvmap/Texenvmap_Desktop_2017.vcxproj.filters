@@ -8,12 +8,6 @@
     <Filter Include="Shaders">
       <UniqueIdentifier>{06310821-17c0-4daa-9d33-4e2588682319}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Shaders\Compiled">
-      <UniqueIdentifier>{73777593-2723-454b-b988-aeff913f02db}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Shaders\Symbols">
-      <UniqueIdentifier>{d83a7a3a-559e-47e8-9080-c5d10308a326}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="texenvmap.cpp" />
@@ -29,24 +23,6 @@
     </None>
     <None Include="Shaders\Texenvmap.fx">
       <Filter>Shaders</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_PSBasic.inc">
-      <Filter>Shaders\Compiled</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_VSBasic.inc">
-      <Filter>Shaders\Compiled</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_PSBasic.pdb">
-      <Filter>Shaders\Symbols</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_VSBasic.pdb">
-      <Filter>Shaders\Symbols</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.inc">
-      <Filter>Shaders\Compiled</Filter>
-    </None>
-    <None Include="Shaders\Compiled\Texenvmap_PSEquiRect.pdb">
-      <Filter>Shaders\Symbols</Filter>
     </None>
   </ItemGroup>
 </Project>
