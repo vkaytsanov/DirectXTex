@@ -1058,8 +1058,8 @@ namespace
             context->OMSetRenderTargets(1, &nullrtv, nullptr);
         }
 
-        ID3D11ShaderResourceView* GetSRV() const { return srv.Get(); }
-        ID3D11Texture2D* GetTexture() const { return texture.Get(); }
+        ID3D11ShaderResourceView* GetSRV() const noexcept { return srv.Get(); }
+        ID3D11Texture2D* GetTexture() const noexcept { return texture.Get(); }
 
     private:
         D3D11_VIEWPORT viewPort;
@@ -1141,7 +1141,7 @@ namespace
             if (!device || !layout)
                 return E_INVALIDARG;
 
-            const void* code = nullptr;;
+            const void* code = nullptr;
             size_t length = 0;
             shaders.GetVertexShaderBytecode(Shaders::VS_BASIC, &code, &length);
 
