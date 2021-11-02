@@ -69,7 +69,6 @@ namespace
         CMD_CUBIC = 1,
         CMD_SPHERE,
         CMD_DUAL_PARABOLA,
-        CMD_DUAL_HEMISPHERE,
         CMD_MAX
     };
 
@@ -120,7 +119,6 @@ namespace
         { L"cubic",         CMD_CUBIC },
         { L"sphere",        CMD_SPHERE },
         { L"parabola",      CMD_DUAL_PARABOLA },
-        { L"hemisphere",    CMD_DUAL_HEMISPHERE },
         { nullptr,          0 }
     };
 
@@ -631,7 +629,6 @@ namespace
         wprintf(L"   cubic               create cubic environment map\n");
         wprintf(L"   sphere              create sphere environment map\n");
         wprintf(L"   parabola            create dual parabolic environment map\n");
-        wprintf(L"   hemisphere          create dual hemisphere environment map\n\n");
 
         wprintf(L"   -r                  wildcard filename search is recursive\n");
         wprintf(L"   -flist <filename>   use text file with a list of input files (one per line)\n");
@@ -729,13 +726,13 @@ namespace
         D3D_FEATURE_LEVEL fl;
         HRESULT hr = s_DynamicD3D11CreateDevice(pAdapter.Get(),
             (pAdapter) ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
-            nullptr, createDeviceFlags, featureLevels, _countof(featureLevels),
+            nullptr, createDeviceFlags, featureLevels, static_cast<UINT>(std::size(featureLevels)),
             D3D11_SDK_VERSION, pDevice, &fl, nullptr);
         if (FAILED(hr))
         {
             hr = s_DynamicD3D11CreateDevice(nullptr,
                 D3D_DRIVER_TYPE_WARP,
-                nullptr, createDeviceFlags, featureLevels, _countof(featureLevels),
+                nullptr, createDeviceFlags, featureLevels, static_cast<UINT>(std::size(featureLevels)),
                 D3D11_SDK_VERSION, pDevice, &fl, nullptr);
         }
 
@@ -784,7 +781,7 @@ namespace
             m_vertexShader.clear();
             m_pixelShader.clear();
 
-            for (size_t j = 0; j < _countof(s_vs); ++j)
+            for (size_t j = 0; j < std::size(s_vs); ++j)
             {
                 ComPtr<ID3D11VertexShader> shader;
                 HRESULT hr = device->CreateVertexShader(s_vs[j].code, s_vs[j].length, nullptr, shader.GetAddressOf());
@@ -794,7 +791,7 @@ namespace
                 m_vertexShader.emplace_back(shader);
             }
 
-            for (size_t j = 0; j < _countof(s_ps); ++j)
+            for (size_t j = 0; j < std::size(s_ps); ++j)
             {
                 ComPtr<ID3D11PixelShader> shader;
                 HRESULT hr = device->CreatePixelShader(s_ps[j].code, s_ps[j].length, nullptr, shader.GetAddressOf());
@@ -829,8 +826,8 @@ namespace
             _In_ ID3D11DeviceContext* deviceContext,
             _In_opt_ ConstantBuffer* cbuffer)
         {
-            if ((vsindex >= _countof(s_vs))
-                || (psindex >= _countof(s_ps))
+            if ((vsindex >= std::size(s_vs))
+                || (psindex >= std::size(s_ps))
                 || !deviceContext)
                 return;
 
@@ -867,7 +864,7 @@ namespace
 
             if (!pShaderByteCode
                 || !pByteCodeLength
-                || (vsindex >= _countof(s_vs)))
+                || (vsindex >= std::size(s_vs)))
                 return;
 
             *pShaderByteCode = s_vs[vsindex].code;
@@ -903,7 +900,7 @@ namespace
     public:
         StateObjects() = default;
 
-        HRESULT Create(ID3D11Device* device)
+        HRESULT Create(ID3D11Device* device) noexcept
         {
             if (!device)
                 return E_INVALIDARG;
@@ -983,7 +980,7 @@ namespace
     class RenderTarget
     {
     public:
-        RenderTarget() = default;
+        RenderTarget() : viewPort{} {}
 
         HRESULT Create(
             ID3D11Device* device,
@@ -1314,11 +1311,10 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
     case CMD_CUBIC:
     case CMD_SPHERE:
     case CMD_DUAL_PARABOLA:
-    case CMD_DUAL_HEMISPHERE:
         break;
 
     default:
-        wprintf(L"Must use one of: cubic, sphere, parabola, hemisphere\n\n");
+        wprintf(L"Must use one of: cubic, sphere, or parabola\n\n");
         return 1;
     }
 
@@ -1579,7 +1575,7 @@ int __cdecl wmain(_In_ int argc, _In_z_count_(argc) wchar_t* argv[])
 
     if (conversion.size() != 1 && conversion.size() != 6)
     {
-        wprintf(L"ERROR: cubic/sphere/parabola/hemisphere requires 1 or 6 input images\n");
+        wprintf(L"ERROR: cubic/sphere/parabola requires 1 or 6 input images\n");
         return 1;
     }
 
